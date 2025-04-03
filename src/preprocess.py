@@ -1,86 +1,111 @@
 # src/preprocess.py
 import pandas as pd
 from sklearn.preprocessing import StandardScaler, LabelEncoder
+import joblib
+import logging
+import os
 
-def preprocess_data(df):
-    """Preprocess the full dataset."""
-    categorical_cols = ['gender', 'masterCategory', 'subCategory', 'articleType', 'baseColour', 'season']
-    numerical_cols = ['year']
-    
-    # Handle missing values
-    df[categorical_cols] = df[categorical_cols].fillna('Unknown')
-    df[numerical_cols] = df[numerical_cols].fillna(df[numerical_cols].median())
-    
-    # Encode categorical variables
-    for col in categorical_cols:
-        df[col] = df[col].astype(str)
-    
-    # One-hot encoding
-    df_encoded = pd.get_dummies(df[categorical_cols])
-    
-    # Combine with numerical data
-    X = pd.concat([df[numerical_cols], df_encoded], axis=1)
-    feature_columns = X.columns.tolist()  # Include numerical and encoded columns
-    
-    # Scale features
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    
-    # Encode target variable
-    le = LabelEncoder()
-    y_encoded = le.fit_transform(df['usage'].fillna('Unknown'))
-    
-    # Debug: Print the class distribution of y
-    print("Class distribution in 'usage' before filtering:")
-    print(pd.Series(le.inverse_transform(y_encoded)).value_counts())
-    
-    # Filter out classes with fewer than 2 instances
-    class_counts = pd.Series(y_encoded).value_counts()
-    valid_classes = class_counts[class_counts >= 2].index
-    mask = pd.Series(y_encoded).isin(valid_classes)
-    X_scaled = X_scaled[mask]
-    y_encoded = y_encoded[mask]
-    
-    # Update df to reflect the filtered data
-    df = df[mask.reset_index(drop=True)]
-    
-    # Re-encode y_encoded to ensure consecutive labels
-    y_encoded = le.fit_transform(df['usage'].fillna('Unknown'))
-    
-    # Debug: Print the class distribution after filtering
-    print("Class distribution in 'usage' after filtering:")
-    print(pd.Series(le.inverse_transform(y_encoded)).value_counts())
-    
-    return X_scaled, y_encoded, feature_columns, scaler, le
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def preprocess_new_data(df_new, feature_columns, scaler):
-    """Preprocess new data for prediction."""
-    categorical_cols = ['gender', 'masterCategory', 'subCategory', 'articleType', 'baseColour', 'season']
-    numerical_cols = ['year']
-    
-    # Handle missing values
-    df_new[categorical_cols] = df_new[categorical_cols].fillna('Unknown')
-    df_new[numerical_cols] = df_new[numerical_cols].fillna(df_new[numerical_cols].median())
-    
-    # Encode categorical variables
-    for col in categorical_cols:
-        df_new[col] = df_new[col].astype(str)
-    
-    # One-hot encoding with training feature columns
-    df_encoded = pd.get_dummies(df_new[categorical_cols])
-    encoded_feature_columns = [col for col in feature_columns if col not in numerical_cols]
-    df_encoded = df_encoded.reindex(columns=encoded_feature_columns, fill_value=0)
-    
-    # Combine with numerical data
-    X_new = pd.concat([df_new[numerical_cols], df_encoded], axis=1)
-    
-    # Ensure X_new has the same columns as feature_columns
-    X_new = X_new.reindex(columns=feature_columns, fill_value=0)
-    
-    # Scale features
-    X_new_scaled = scaler.transform(X_new)
-    
-    return X_new_scaled
+def preprocess_data(df, encoder_dir="models/"):
+    try:
+        logger.info("Starting preprocess_data")
+        logger.info(f"Initial DataFrame shape: {df.shape}")
 
-if __name__ == "__main__":
-    pass
+        # Drop rows with missing values
+        logger.info("Dropping rows with missing values")
+        df = df.dropna()
+        logger.info(f"Shape after dropping NA: {df.shape}")
+
+        # Reset the DataFrame index to ensure consistent indexing
+        logger.info("Resetting DataFrame index")
+        df = df.reset_index(drop=True)
+
+        # Filter out rows with invalid values
+        logger.info("Filtering rows with invalid values")
+        mask = (df['year'] >= 2000) & (df['year'] <= 2025)  # Example condition
+        logger.info(f"Number of rows passing filter: {mask.sum()}")
+        df = df[mask]  # Use the mask directly without resetting its index
+        logger.info(f"Shape after filtering: {df.shape}")
+
+        # Log class distribution before encoding
+        logger.info("Class distribution in 'usage' before filtering:")
+        logger.info(df['usage'].value_counts().to_string())
+
+        # Define categorical and numerical columns
+        categorical_columns = ['gender', 'masterCategory', 'subCategory', 'articleType', 'baseColour', 'season']
+        numerical_columns = ['year']
+
+        # Encode categorical variables
+        logger.info("Encoding categorical variables")
+        encoders = {}
+        for col in categorical_columns:
+            encoder = LabelEncoder()
+            df[col] = encoder.fit_transform(df[col].astype(str))
+            encoders[col] = encoder
+            # Save the encoder
+            os.makedirs(encoder_dir, exist_ok=True)
+            joblib.dump(encoder, os.path.join(encoder_dir, f"{col}_encoder.pkl"))
+            logger.info(f"Saved encoder for {col}")
+
+        # Feature columns
+        feature_columns = categorical_columns + numerical_columns
+        X = df[feature_columns]
+
+        # Encode the target variable
+        logger.info("Encoding target variable 'usage'")
+        le = LabelEncoder()
+        y = le.fit_transform(df['usage'])
+        logger.info(f"Encoded classes: {list(le.classes_)}")
+
+        # Scale numerical features
+        logger.info("Scaling numerical features")
+        scaler = StandardScaler()
+        X = X.copy()  # Avoid SettingWithCopyWarning
+        X[numerical_columns] = scaler.fit_transform(X[numerical_columns])
+
+        logger.info("Preprocessing completed successfully")
+        return X, y, feature_columns, scaler, le, encoders
+    except Exception as e:
+        logger.error(f"Error in preprocess_data: {str(e)}", exc_info=True)
+        raise
+
+def preprocess_new_data(input_data, feature_columns, scaler, encoder_dir="models/"):
+    try:
+        logger.info("Starting preprocess_new_data")
+        logger.info(f"Input data shape: {input_data.shape}")
+
+        # Define categorical and numerical columns
+        categorical_columns = ['gender', 'masterCategory', 'subCategory', 'articleType', 'baseColour', 'season']
+        numerical_columns = ['year']
+
+        # Load and apply the encoders for categorical variables
+        logger.info("Encoding categorical variables")
+        encoders = {}
+        for col in categorical_columns:
+            encoder_path = os.path.join(encoder_dir, f"{col}_encoder.pkl")
+            if not os.path.exists(encoder_path):
+                raise FileNotFoundError(f"Encoder for {col} not found at {encoder_path}")
+            encoder = joblib.load(encoder_path)
+            # Handle unseen labels by mapping to a default value (e.g., the most frequent category)
+            input_data[col] = input_data[col].astype(str).map(
+                lambda x: x if x in encoder.classes_ else encoder.classes_[0]
+            )
+            input_data[col] = encoder.transform(input_data[col])
+            encoders[col] = encoder
+
+        # Select feature columns
+        X = input_data[feature_columns]
+
+        # Scale numerical features
+        logger.info("Scaling numerical features")
+        X = X.copy()  # Avoid SettingWithCopyWarning
+        X[numerical_columns] = scaler.transform(X[numerical_columns])
+
+        logger.info("Preprocessing new data completed successfully")
+        return X
+    except Exception as e:
+        logger.error(f"Error in preprocess_new_data: {str(e)}", exc_info=True)
+        raise

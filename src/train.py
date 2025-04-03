@@ -1,51 +1,74 @@
 # src/train.py
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
+import joblib
 import os
 import pandas as pd
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.metrics import classification_report
-import xgboost as xgb
-import joblib
+import numpy as np
+import logging
 
-def train_and_evaluate(X, y, feature_columns, le, data_dir='data/', model_dir='models/'):
-    """Train and evaluate the model."""
-    # Split data
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+logger = logging.getLogger(__name__)
 
-    # Save test data for later evaluation in API
-    X_test_df = pd.DataFrame(X_test, columns=feature_columns)
-    y_test_df = pd.DataFrame(le.inverse_transform(y_test), columns=["usage"])
-    X_test_df.to_csv(f"{data_dir}X_test.csv", index=False)
-    y_test_df.to_csv(f"{data_dir}y_test.csv", index=False)
+def train_and_evaluate(X, y, feature_columns, le, data_dir="data/", model_dir="models/", simplify_training=False, le_classes=None):
+    try:
+        logger.info("Starting train_and_evaluate")
 
-    # Define model
-    model = xgb.XGBClassifier(eval_metric='mlogloss')  # Removed use_label_encoder
+        # Convert y to a pandas Series if it's a NumPy array
+        if isinstance(y, np.ndarray):
+            y_series = pd.Series(y, name='usage')
+        else:
+            y_series = y
 
-    # Define hyperparameter grid (simplified for testing)
-    param_grid = {
-        'n_estimators': [100],  # Reduced to one value
-        'max_depth': [3, 5],   # Reduced options
-        'learning_rate': [0.1] # Reduced to one value
-    }
+        # Log class distribution (decode if le_classes is provided)
+        logger.info("Class distribution in 'usage' before filtering:")
+        if le_classes is not None:
+            # Decode the encoded labels using le_classes
+            decoded_series = y_series.map(lambda x: le_classes[int(x)])
+            logger.info(decoded_series.value_counts().to_string())
+        else:
+            logger.info(y_series.value_counts().to_string())
 
-    # Perform GridSearchCV with limited parallelization
-    grid_search = GridSearchCV(
-        model, param_grid, cv=3, scoring='accuracy', n_jobs=2, verbose=1  # Limit to 2 jobs
-    )
-    grid_search.fit(X_train, y_train)
+        # Filter data if needed (add your filtering logic here)
+        # For now, assuming no filtering
+        logger.info("Class distribution in 'usage' after filtering:")
+        if le_classes is not None:
+            logger.info(decoded_series.value_counts().to_string())
+        else:
+            logger.info(y_series.value_counts().to_string())
 
-    # Best model
-    best_model = grid_search.best_estimator_
-    print("Best Parameters:", grid_search.best_params_)
+        # Define the model
+        model = RandomForestClassifier(random_state=42)
 
-    # Evaluate on test set
-    y_pred = best_model.predict(X_test)
-    print("Classification Report:\n", classification_report(
-        y_test, y_pred, target_names=le.classes_
-    ))
+        # Simplify training for Render's free tier
+        if simplify_training:
+            logger.info("Using simplified training parameters")
+            model = RandomForestClassifier(
+                n_estimators=50,  # Reduced number of trees
+                max_depth=5,      # Reduced depth
+                n_jobs=1,         # Single thread to reduce memory usage
+                random_state=42
+            )
+            model.fit(X, y)
+        else:
+            logger.info("Using GridSearchCV for hyperparameter tuning")
+            param_grid = {
+                "n_estimators": [100, 200],
+                "max_depth": [3, 5]
+            }
+            grid_search = GridSearchCV(
+                model, param_grid, cv=3, n_jobs=-1, verbose=1
+            )
+            grid_search.fit(X, y)
+            model = grid_search.best_estimator_
+            logger.info(f"Best parameters: {grid_search.best_params_}")
 
-    return best_model
+        # Save the model
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, "model.pkl")
+        joblib.dump(model, model_path)
+        logger.info(f"Model saved to {model_path}")
 
-if __name__ == "__main__":
-    pass
+        return model
+    except Exception as e:
+        logger.error(f"Error in train_and_evaluate: {str(e)}", exc_info=True)
+        raise
