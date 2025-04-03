@@ -1,1 +1,1 @@
-# fashion-recommendation-
+# fashion_recommendation
