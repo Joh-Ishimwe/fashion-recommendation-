@@ -178,4 +178,4 @@ if __name__ == "__main__":
     import uvicorn
     # For production, bind to 0.0.0.0 and use the PORT environment variable
     port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, port=port)
