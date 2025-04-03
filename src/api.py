@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException, File, UploadFile
 from pydantic import BaseModel, Field, validator
 import pandas as pd
 import joblib
-import csv  # Add this import
+import csv
 from preprocess import preprocess_data, preprocess_new_data
 from train import train_and_evaluate
 from data import get_mongo_collection, upload_to_mongo, load_from_mongo
@@ -23,10 +23,14 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Fashion Recommendation API")
 
 # Load the trained model and artifacts (make them global so we can update them)
-app.state.model = joblib.load(MODEL_PATH)
-app.state.scaler = joblib.load(SCALER_PATH)
-app.state.feature_columns = joblib.load(FEATURE_COLUMNS_PATH)
-app.state.le = joblib.load(LABEL_ENCODER_PATH)
+try:
+    app.state.model = joblib.load(MODEL_PATH)
+    app.state.scaler = joblib.load(SCALER_PATH)
+    app.state.feature_columns = joblib.load(FEATURE_COLUMNS_PATH)
+    app.state.le = joblib.load(LABEL_ENCODER_PATH)
+except FileNotFoundError as e:
+    logger.error(f"Model artifacts not found: {str(e)}. Please ensure the model is trained.")
+    raise HTTPException(status_code=500, detail="Model artifacts not found. Please train the model first.")
 
 @app.get("/")
 async def root():
@@ -172,4 +176,6 @@ async def get_metrics():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # For production, bind to 0.0.0.0 and use the PORT environment variable
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
