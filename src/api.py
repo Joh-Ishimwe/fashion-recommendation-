@@ -1,5 +1,6 @@
 # src/api.py
 from fastapi import FastAPI, HTTPException, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware  
 from pydantic import BaseModel, Field, validator
 import pandas as pd
 import joblib
@@ -22,6 +23,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Fashion Recommendation API")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",  
+        # "https://fashion-recommendation-frontend.netlify.app",  
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],  
+    allow_headers=["Content-Type"], 
+)
 
 # Load the trained model and artifacts (make them global so we can update them)
 try:
