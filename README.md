@@ -9,9 +9,8 @@ The Fashion Recommendation System is an innovative application that leverages ma
 This project demonstrates end-to-end development, including UI/UX design, API integration, and deployment, making it a great example for learning full-stack development with modern tools.
 
 ## URLs
-- **Live Application**: **(https://fashion-recommendation-frontend.netlify.app)**
+- **Live Application**: **(https://fashion-recommendation-frontend-1.onrender.com)**
 - **Deployed API**: **(https://fashion-recommendation-rls8.onrender.com/docs)**
-- **GitHub Repository**: **(https://github.com/Joh-Ishimwe/fashion-recommendation-)**
 
 ## Video Demo
 Check out the video demo to see the Fashion Recommendation System in action:

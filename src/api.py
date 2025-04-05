@@ -29,14 +29,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  
-        # "https://fashion-recommendation-frontend.netlify.app",  
+        "https://fashion-recommendation-frontend-1.onrender.com",  
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST"],  
     allow_headers=["Content-Type"], 
 )
 
-# Load the trained model and artifacts (make them global so we can update them)
+# Load the trained model and artifacts 
 try:
     app.state.model = joblib.load(MODEL_PATH)
     app.state.scaler = joblib.load(SCALER_PATH)
@@ -105,7 +105,7 @@ async def upload_data(file: UploadFile = File(...)):
         temp_file_path = f"temp_{file.filename}"
         logger.info(f"Saving temporary file to {temp_file_path}")
         with open(temp_file_path, "wb") as temp_file:
-            content = await file.read()  # Read the file content
+            content = await file.read()  
             temp_file.write(content)
 
         # Read the CSV file with error handling for malformed data
@@ -139,7 +139,8 @@ async def upload_data(file: UploadFile = File(...)):
         logger.error(f"Upload error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=400, detail=f"Upload error: {str(e)}")
     finally:
-        await file.close()  # Ensure the file is closed
+        await file.close()  
+
 
 @app.post("/retrain/")
 async def retrain_model():
@@ -156,26 +157,39 @@ async def retrain_model():
         logger.info(f"Loaded {len(df)} records from MongoDB")
 
         # Sample a subset of the data to reduce memory usage
-        sample_size = min(10000, len(df))  # Use at most 10,000 records
+        sample_size = min(10000, len(df))  
         if len(df) > sample_size:
             logger.info(f"Sampling {sample_size} records from {len(df)} for training")
             df = df.sample(n=sample_size, random_state=42)
+
+        # Log the original class distribution before preprocessing
+        logger.info("Original class distribution in 'usage':")
+        logger.info(df['usage'].value_counts(dropna=False).to_string())  
 
         # Preprocess the data
         logger.info("Preprocessing data")
         X, y, feature_columns, scaler, le, encoders = preprocess_data(df, encoder_dir=os.path.dirname(MODEL_PATH))
         logger.info("Data preprocessing completed")
+        logger.info(f"Label encoder classes: {le.classes_.tolist()}")
 
-        # Split the data into train and test sets
+        # Verify that all non-NaN labels in the dataset are in le.classes_
+        original_labels = set(df['usage'].dropna())  
+        missing_labels = original_labels - set(le.classes_)
+        if missing_labels:
+            logger.error(f"Labels in data not found in label encoder: {missing_labels}")
+            raise ValueError(f"Label encoder missing classes: {missing_labels}")
+
+        # Split the data into train and test sets with stratification
         test_size = 0.2
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42, stratify=y)
         logger.info(f"Split data into train ({len(X_train)}) and test ({len(X_test)}) sets")
 
-        # Save the test set for evaluation
+        # Save the test set for evaluation (y_test is already encoded by preprocess_data)
         os.makedirs("data", exist_ok=True)
         pd.DataFrame(X_test).to_csv("data/X_test.csv", index=False)
         pd.DataFrame({"usage": y_test}).to_csv("data/y_test.csv", index=False)
         logger.info("Saved test data to data/X_test.csv and data/y_test.csv")
+        logger.info(f"y_test sample: {y_test[:5].tolist()}")
 
         # Train the model with simplified parameters
         logger.info("Starting model training")
@@ -187,33 +201,9 @@ async def retrain_model():
         )
         logger.info("Model training completed")
 
-        # Evaluate on test set to get metrics
-        logger.info("Evaluating model on test set")
-        y_pred = best_model.predict(X_test)
-        y_test_encoded = le.transform(y_test) if isinstance(y_test, (pd.Series, list)) else y_test
-        report = classification_report(y_test_encoded, y_pred, target_names=le.classes_, output_dict=True)
-        logger.info("Model evaluation completed")
-
-        # Save metrics
-        logger.info("Saving metrics")
-        metrics = {
-            "version": get_model_version(),
-            "classification_report": report,
-            "training_samples": len(X_train),
-            "test_samples": len(X_test),
-            "timestamp": datetime.now().isoformat()
-        }
-        save_metrics(metrics)
-        logger.info("Metrics saved")
-
-        # Save new artifacts
-        logger.info("Saving model artifacts")
-        os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-        joblib.dump(best_model, MODEL_PATH)
-        joblib.dump(scaler, SCALER_PATH)
-        joblib.dump(feature_columns, FEATURE_COLUMNS_PATH)
-        joblib.dump(le, LABEL_ENCODER_PATH)
-        logger.info("Model artifacts saved")
+        # Increment model version after training
+        new_version = increment_model_version()
+        logger.info(f"Incremented model version to {new_version}")
 
         # Update the in-memory model and artifacts
         app.state.model = best_model
@@ -223,26 +213,35 @@ async def retrain_model():
         app.state.encoders = encoders
         logger.info("Updated in-memory model and artifacts")
 
-        # Increment model version
-        new_version = increment_model_version()
-        logger.info(f"Incremented model version to {new_version}")
-
         return {"message": f"Model retrained successfully. New version: {new_version}"}
     except Exception as e:
         logger.error(f"Retraining error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Retraining error: {str(e)}")
-
 @app.get("/metrics/")
 async def get_metrics():
     """Return the current model's performance metrics and version."""
     try:
         metrics = load_metrics()
-        metrics["current_version"] = get_model_version()
-        return metrics
+        logger.info(f"Loaded metrics: {metrics}")  
+        
+        # Extract weighted avg metrics from classification_report
+        weighted_avg = metrics.get("classification_report", {}).get("weighted avg", {})
+        
+        return {
+            "current_version": get_model_version(),  
+            "classification_report": metrics.get("classification_report", {}),
+            "accuracy": metrics.get("classification_report", {}).get("accuracy", 0.0),
+            "f1_score": weighted_avg.get("f1-score", 0.0),
+            "precision": weighted_avg.get("precision", 0.0),
+            "recall": weighted_avg.get("recall", 0.0),
+            "confusion_matrix": metrics.get("confusion_matrix", []),
+            "training_samples": metrics.get("training_samples", 0),
+            "test_samples": metrics.get("test_samples", 0),
+            "timestamp": metrics.get("timestamp", "")
+        }
     except Exception as e:
         logger.error(f"Error fetching metrics: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error fetching metrics: {str(e)}")
-
 if __name__ == "__main__":
     import uvicorn
     import os

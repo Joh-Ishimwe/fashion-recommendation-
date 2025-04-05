@@ -46,7 +46,7 @@ def upload_df_to_mongo(df: pd.DataFrame):
         logger.info(f"Uploading DataFrame with shape: {df.shape}")
         collection = get_mongo_collection()
         logger.info("Clearing existing data in MongoDB collection...")
-        collection.delete_many({})  # Clear existing data
+        collection.delete_many({})  
         logger.info("Converting DataFrame to dict for MongoDB insertion...")
         records = df.to_dict('records')
         logger.info(f"Inserting {len(records)} records into MongoDB...")

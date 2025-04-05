@@ -23,15 +23,19 @@ def preprocess_data(df, encoder_dir="models/"):
         logger.info("Resetting DataFrame index")
         df = df.reset_index(drop=True)
 
+        # Log class distribution before filtering
+        logger.info("Class distribution in 'usage' before filtering:")
+        logger.info(df['usage'].value_counts().to_string())
+
         # Filter out rows with invalid values
         logger.info("Filtering rows with invalid values")
-        mask = (df['year'] >= 2000) & (df['year'] <= 2025)  # Example condition
+        mask = (df['year'] >= 2000) & (df['year'] <= 2025)  
         logger.info(f"Number of rows passing filter: {mask.sum()}")
-        df = df[mask]  # Use the mask directly without resetting its index
+        df = df[mask] 
         logger.info(f"Shape after filtering: {df.shape}")
 
-        # Log class distribution before encoding
-        logger.info("Class distribution in 'usage' before filtering:")
+        # Log class distribution after filtering
+        logger.info("Class distribution in 'usage' after filtering:")
         logger.info(df['usage'].value_counts().to_string())
 
         # Define categorical and numerical columns
