@@ -34,9 +34,7 @@ class FashionItem(BaseModel):
     season: str
     year: int
 
-# Function to initialize model artifacts
 def initialize_model():
-    """Train the model if artifacts are missing."""
     if not os.path.exists(MODEL_PATH):
         logger.info("Model artifacts not found. Training the model...")
         try:
@@ -45,12 +43,11 @@ def initialize_model():
                 logger.warning("No data in MongoDB. Upload data first.")
                 return False
             
-            # Sample data if needed
             sample_size = min(10000, len(df))
             if len(df) > sample_size:
                 df = df.sample(n=sample_size, random_state=42)
             
-            X, y, feature_columns, scaler, le, encoders = preprocess_data(df, encoder_dir="models/")
+            X, y, feature_columns, scaler, le, encoders = preprocess_data(df, encoder_dir="models/", apply_smote=True)
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
             best_model = train_and_evaluate(
                 X_train, y_train, feature_columns, le,
@@ -59,8 +56,8 @@ def initialize_model():
                 le_classes=le.classes_
             )
             
-            # Save artifacts
             os.makedirs("models", exist_ok=True)
+            os.makedirs("data", exist_ok=True)  # Ensure data directory exists
             joblib.dump(best_model, MODEL_PATH)
             joblib.dump(scaler, SCALER_PATH)
             joblib.dump(feature_columns, FEATURE_COLUMNS_PATH)
@@ -68,7 +65,6 @@ def initialize_model():
             for col, encoder in encoders.items():
                 joblib.dump(encoder, f"models/{col}_encoder.pkl")
             
-            # Load into app state
             app.state.model = best_model
             app.state.scaler = scaler
             app.state.feature_columns = feature_columns
@@ -79,6 +75,7 @@ def initialize_model():
         except Exception as e:
             logger.error(f"Failed to train model: {str(e)}", exc_info=True)
             return False
+
     else:
         # Load existing artifacts
         app.state.model = joblib.load(MODEL_PATH)

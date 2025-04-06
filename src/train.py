@@ -1,6 +1,6 @@
 # src/train.py
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GridSearchCV, train_test_split  # Added import
+from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.metrics import classification_report, accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
 import joblib
 import os
@@ -34,6 +34,7 @@ def train_and_evaluate(X, y, feature_columns, le, data_dir="data/", model_dir="m
 
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+        os.makedirs(data_dir, exist_ok=True)
 
         logger.info("Class distribution in 'usage' after filtering:")
         decoded_train_series = pd.Series(y_train).map(lambda x: le_classes[int(x)])
@@ -65,7 +66,7 @@ def train_and_evaluate(X, y, feature_columns, le, data_dir="data/", model_dir="m
 
         pd.DataFrame(X_test, columns=feature_columns).to_csv(os.path.join(data_dir, "X_test.csv"), index=False)
         pd.DataFrame({'usage': y_test}).to_csv(os.path.join(data_dir, "y_test.csv"), index=False)
-
+        
         X_test_path = os.path.join(data_dir, "X_test.csv")
         y_test_path = os.path.join(data_dir, "y_test.csv")
         if not os.path.exists(X_test_path) or not os.path.exists(y_test_path):
@@ -136,6 +137,5 @@ def train_and_evaluate(X, y, feature_columns, le, data_dir="data/", model_dir="m
     except Exception as e:
         logger.error(f"Error in train_and_evaluate: {str(e)}", exc_info=True)
         raise
-
 if __name__ == "__main__":
     pass
