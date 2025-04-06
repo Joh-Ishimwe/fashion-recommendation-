@@ -142,11 +142,13 @@ async def upload_data(file: UploadFile = File(...)):
         await file.close()  
 
 
+#retrain
 @app.post("/retrain/")
 async def retrain_model():
     """Retrain the model using data from MongoDB."""
     try:
         logger.info("Starting retrain process")
+        df = load_from_mongo()
 
         # Load data from MongoDB
         logger.info("Loading data from MongoDB")
@@ -156,42 +158,36 @@ async def retrain_model():
             raise HTTPException(status_code=400, detail="No data found in MongoDB for retraining")
         logger.info(f"Loaded {len(df)} records from MongoDB")
 
-        # Sample a subset of the data to reduce memory usage
-        sample_size = min(10000, len(df))  
+        # Validate schema
+        required_columns = ["gender", "masterCategory", "subCategory", "articleType", "baseColour", "season", "year", "usage"]
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            logger.error(f"Missing required columns in MongoDB data: {missing_columns}")
+            raise HTTPException(status_code=400, detail=f"Missing required columns: {missing_columns}")
+
+        # Sample data
+        sample_size = min(10000, len(df))
         if len(df) > sample_size:
             logger.info(f"Sampling {sample_size} records from {len(df)} for training")
             df = df.sample(n=sample_size, random_state=42)
 
-        # Log the original class distribution before preprocessing
-        logger.info("Original class distribution in 'usage':")
-        logger.info(df['usage'].value_counts(dropna=False).to_string())  
-
-        # Preprocess the data
+        # Preprocess data with improved function
         logger.info("Preprocessing data")
-        X, y, feature_columns, scaler, le, encoders = preprocess_data(df, encoder_dir=os.path.dirname(MODEL_PATH))
-        logger.info("Data preprocessing completed")
+        X, y, feature_columns, scaler, le, encoders = preprocess_data(
+            df, encoder_dir=os.path.dirname(MODEL_PATH), apply_smote=False
+        )
         logger.info(f"Label encoder classes: {le.classes_.tolist()}")
-
-        # Verify that all non-NaN labels in the dataset are in le.classes_
-        original_labels = set(df['usage'].dropna())  
-        missing_labels = original_labels - set(le.classes_)
-        if missing_labels:
-            logger.error(f"Labels in data not found in label encoder: {missing_labels}")
-            raise ValueError(f"Label encoder missing classes: {missing_labels}")
-
-        # Split the data into train and test sets with stratification
-        test_size = 0.2
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42, stratify=y)
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
         logger.info(f"Split data into train ({len(X_train)}) and test ({len(X_test)}) sets")
 
-        # Save the test set for evaluation (y_test is already encoded by preprocess_data)
+        # Save test set
         os.makedirs("data", exist_ok=True)
         pd.DataFrame(X_test).to_csv("data/X_test.csv", index=False)
         pd.DataFrame({"usage": y_test}).to_csv("data/y_test.csv", index=False)
-        logger.info("Saved test data to data/X_test.csv and data/y_test.csv")
-        logger.info(f"y_test sample: {y_test[:5].tolist()}")
+        logger.info("Saved test data")
 
-        # Train the model with simplified parameters
+        # Train model (simplified for Render)
         logger.info("Starting model training")
         best_model = train_and_evaluate(
             X_train, y_train, feature_columns, le,
@@ -201,17 +197,24 @@ async def retrain_model():
         )
         logger.info("Model training completed")
 
-        # Increment model version after training
+        # Save artifacts
+        joblib.dump(best_model, MODEL_PATH)
+        joblib.dump(scaler, SCALER_PATH)
+        joblib.dump(feature_columns, FEATURE_COLUMNS_PATH)
+        joblib.dump(le, LABEL_ENCODER_PATH)
+        for col, encoder in encoders.items():
+            joblib.dump(encoder, os.path.join(os.path.dirname(MODEL_PATH), f"{col}_encoder.pkl"))
+
+        # Increment version
         new_version = increment_model_version()
         logger.info(f"Incremented model version to {new_version}")
 
-        # Update the in-memory model and artifacts
+        # Update in-memory artifacts
         app.state.model = best_model
         app.state.scaler = scaler
         app.state.feature_columns = feature_columns
         app.state.le = le
         app.state.encoders = encoders
-        logger.info("Updated in-memory model and artifacts")
 
         return {"message": f"Model retrained successfully. New version: {new_version}"}
     except Exception as e:

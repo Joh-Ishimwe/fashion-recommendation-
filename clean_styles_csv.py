@@ -13,28 +13,50 @@ df = df[required_columns]
 # Handle missing values in 'season' and convert to string
 df['season'] = df['season'].fillna('Unknown').astype(str)
 
-# Define a more nuanced mapping for 'usage' based on multiple features
+# Define usage distribution as per your expectation
+usage_distribution = {
+    'Casual': 0.3,
+    'Sports': 0.2,
+    'Formal': 0.15,
+    'Ethnic': 0.1,
+    'Party': 0.1,
+    'Travel': 0.05,
+    'Smart Casual': 0.05,
+    'Home': 0.05
+}
+
+# Define a nuanced mapping for 'usage' based on multiple features
 def assign_usage(row):
-    # Base mapping on articleType
-    if row['articleType'] in ['Tshirts', 'Jeans', 'Dresses', 'Casual Shoes']:
-        base_usage = 'Casual'
-    elif row['articleType'] in ['Shirts', 'Trousers', 'Formal Shoes']:
-        base_usage = 'Formal'
-    elif row['articleType'] in ['Watches', 'Sunglasses', 'Belts']:
-        base_usage = 'Fashionable'
-    else:
-        base_usage = 'Casual'
+    article = row['articleType'].lower()
+    master = row['masterCategory'].lower()
+    sub = row['subCategory'].lower()
+    season = row['season'].lower()
 
-    # Adjust based on season (example: summer items are more likely to be Casual)
-    season_lower = row['season'].lower()
-    if season_lower == 'summer' and np.random.rand() > 0.2:  # 80% chance
-        return 'Casual'
-    elif season_lower == 'winter' and np.random.rand() > 0.5:  # 50% chance
-        return 'Formal'
-    
-    return base_usage
+    # Probabilistic assignment based on features
+    rand = np.random.rand()
+    if 'sports' in article or 'sports' in sub or 'sportswear' in master:
+        return 'Sports' if rand < 0.8 else 'Casual'
+    elif 'ethnic' in article or 'kurtas' in article or 'sarees' in article:
+        return 'Ethnic' if rand < 0.7 else 'Party'
+    elif 'formal' in article or 'shirts' in article or 'trousers' in article or 'formal shoes' in article:
+        return 'Formal' if rand < 0.6 else 'Smart Casual'
+    elif 'party' in article or 'dresses' in article or 'heels' in article:
+        return 'Party' if rand < 0.6 else 'Smart Casual'  # Changed from Fashionable
+    elif 'loungewear' in article or 'home' in sub or 'sleepwear' in master:
+        return 'Home' if rand < 0.7 else 'Casual'
+    elif 'travel' in article or 'backpacks' in article or 'luggage' in sub:
+        return 'Travel' if rand < 0.6 else 'Casual'
+    elif 'casual' in article or 'tshirts' in article or 'jeans' in article or 'casual shoes' in article:
+        return 'Casual' if rand < 0.7 else 'Smart Casual'
+    elif 'watch' in article or 'sunglasses' in article or 'belt' in article:
+        return 'Smart Casual' if rand < 0.6 else 'Casual'  # Reassigned Fashionable
 
-# Assign 'usage' with some randomness to avoid deterministic mapping
+    # Fallback with weighted random choice
+    usages = list(usage_distribution.keys())
+    weights = list(usage_distribution.values())
+    return np.random.choice(usages, p=weights)
+
+# Assign 'usage' to the DataFrame
 df['usage'] = df.apply(assign_usage, axis=1)
 
 # Debug: Print the class distribution of 'usage'
