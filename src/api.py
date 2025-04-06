@@ -1,14 +1,13 @@
 # src/api.py
 import csv
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware  
 import joblib
 import os
 import logging
-
 import pandas as pd
-from data import load_from_mongo, upload_to_mongo
+from data import load_from_mongo, upload_to_mongo, get_mongo_collection
 from preprocess import preprocess_data, preprocess_new_data
-from data import get_mongo_collection
 from train import train_and_evaluate
 from predict import make_predictions
 from utils import increment_model_version, get_model_version, load_metrics, save_metrics
@@ -16,6 +15,15 @@ from sklearn.model_selection import train_test_split
 from pydantic import BaseModel
 
 app = FastAPI()
+
+# Configure CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "https://fashion-recommendation-frontend-1.onrender.com"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],  
+    # allow_headers=["*"], 
+)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -57,7 +65,7 @@ def initialize_model():
             )
             
             os.makedirs("models", exist_ok=True)
-            os.makedirs("data", exist_ok=True)  # Ensure data directory exists
+            os.makedirs("data", exist_ok=True)  
             joblib.dump(best_model, MODEL_PATH)
             joblib.dump(scaler, SCALER_PATH)
             joblib.dump(feature_columns, FEATURE_COLUMNS_PATH)
