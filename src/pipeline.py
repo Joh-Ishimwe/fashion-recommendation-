@@ -10,7 +10,6 @@ import joblib
 from sklearn.metrics import classification_report
 
 def run_pipeline(data_dir='data/', model_dir='models/', upload=False, sample_size=None):
-    """Run the full ML pipeline with MongoDB data."""
     os.makedirs(data_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
     
@@ -22,7 +21,7 @@ def run_pipeline(data_dir='data/', model_dir='models/', upload=False, sample_siz
     df = load_data_from_mongo()
     
     if df.empty:
-        raise ValueError("No data found in MongoDB. Please upload data using the /upload_data/ endpoint or set upload=True.")
+        raise ValueError("No data found in MongoDB.")
     
     if sample_size is not None:
         print(f"Sampling {sample_size} records for testing...")
@@ -33,15 +32,15 @@ def run_pipeline(data_dir='data/', model_dir='models/', upload=False, sample_siz
     
     print("Training model...")
     best_model = train_and_evaluate(
-        X_scaled, y_encoded, feature_columns, le, data_dir, model_dir, le_classes=le.classes_  # Pass le.classes_
+        X_scaled, y_encoded, feature_columns, le, data_dir, model_dir, le_classes=le.classes_
     )
     
-    # Evaluate on test set to get metrics
+    # Evaluate on test set
     X_test = pd.read_csv(f"{data_dir}X_test.csv")
     y_test = pd.read_csv(f"{data_dir}y_test.csv")["usage"]
-    y_test_encoded = le.transform(y_test)
+    # y_test is already encoded from train.py, no need to transform again
     y_pred = best_model.predict(X_test)
-    report = classification_report(y_test_encoded, y_pred, target_names=le.classes_, output_dict=True)
+    report = classification_report(y_test, y_pred, target_names=le.classes_, output_dict=True)
     
     metrics = {
         "version": get_model_version(),

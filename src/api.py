@@ -1,59 +1,105 @@
 # src/api.py
-from fastapi import FastAPI, HTTPException, File, UploadFile
-from fastapi.middleware.cors import CORSMiddleware  
-from pydantic import BaseModel, Field, validator
-import pandas as pd
-import joblib
 import csv
-from preprocess import preprocess_data, preprocess_new_data
-from train import train_and_evaluate
-from data import get_mongo_collection, upload_to_mongo, load_from_mongo
-from utils import get_model_version, increment_model_version, save_metrics, load_metrics
-from datetime import datetime
-from models import FashionItem
-from config import MODEL_PATH, SCALER_PATH, FEATURE_COLUMNS_PATH, LABEL_ENCODER_PATH
-import shutil
+from fastapi import FastAPI, HTTPException, UploadFile, File
+import joblib
 import os
-from sklearn.metrics import classification_report
-from sklearn.model_selection import train_test_split
 import logging
 
-# Configure logging
+import pandas as pd
+from data import load_from_mongo, upload_to_mongo
+from preprocess import preprocess_data, preprocess_new_data
+from data import get_mongo_collection
+from train import train_and_evaluate
+from predict import make_predictions
+from utils import increment_model_version, get_model_version, load_metrics, save_metrics
+from sklearn.model_selection import train_test_split
+from pydantic import BaseModel
+
+app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Fashion Recommendation API")
+# Define paths
+MODEL_PATH = "models/best_model.pkl"
+SCALER_PATH = "models/scaler.pkl"
+FEATURE_COLUMNS_PATH = "models/feature_columns.pkl"
+LABEL_ENCODER_PATH = "models/label_encoder.pkl"
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  
-        "https://fashion-recommendation-frontend-1.onrender.com",  
-    ],
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],  
-    allow_headers=["Content-Type"], 
-)
+class FashionItem(BaseModel):
+    gender: str
+    masterCategory: str
+    subCategory: str
+    articleType: str
+    baseColour: str
+    season: str
+    year: int
 
-# Load the trained model and artifacts 
+# Function to initialize model artifacts
+def initialize_model():
+    """Train the model if artifacts are missing."""
+    if not os.path.exists(MODEL_PATH):
+        logger.info("Model artifacts not found. Training the model...")
+        try:
+            df = load_from_mongo()
+            if df.empty:
+                logger.warning("No data in MongoDB. Upload data first.")
+                return False
+            
+            # Sample data if needed
+            sample_size = min(10000, len(df))
+            if len(df) > sample_size:
+                df = df.sample(n=sample_size, random_state=42)
+            
+            X, y, feature_columns, scaler, le, encoders = preprocess_data(df, encoder_dir="models/")
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+            best_model = train_and_evaluate(
+                X_train, y_train, feature_columns, le,
+                data_dir="data/", model_dir="models/",
+                simplify_training=True,
+                le_classes=le.classes_
+            )
+            
+            # Save artifacts
+            os.makedirs("models", exist_ok=True)
+            joblib.dump(best_model, MODEL_PATH)
+            joblib.dump(scaler, SCALER_PATH)
+            joblib.dump(feature_columns, FEATURE_COLUMNS_PATH)
+            joblib.dump(le, LABEL_ENCODER_PATH)
+            for col, encoder in encoders.items():
+                joblib.dump(encoder, f"models/{col}_encoder.pkl")
+            
+            # Load into app state
+            app.state.model = best_model
+            app.state.scaler = scaler
+            app.state.feature_columns = feature_columns
+            app.state.le = le
+            app.state.encoders = encoders
+            logger.info("Model trained and loaded successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to train model: {str(e)}", exc_info=True)
+            return False
+    else:
+        # Load existing artifacts
+        app.state.model = joblib.load(MODEL_PATH)
+        app.state.scaler = joblib.load(SCALER_PATH)
+        app.state.feature_columns = joblib.load(FEATURE_COLUMNS_PATH)
+        app.state.le = joblib.load(LABEL_ENCODER_PATH)
+        app.state.encoders = {
+            col: joblib.load(f"models/{col}_encoder.pkl")
+            for col in ['gender', 'masterCategory', 'subCategory', 'articleType', 'baseColour', 'season']
+        }
+        logger.info("Model artifacts loaded successfully")
+        return True
+
+# Initialize model at startup
 try:
-    app.state.model = joblib.load(MODEL_PATH)
-    app.state.scaler = joblib.load(SCALER_PATH)
-    app.state.feature_columns = joblib.load(FEATURE_COLUMNS_PATH)
-    app.state.le = joblib.load(LABEL_ENCODER_PATH)
-    # Load the encoders
-    app.state.encoders = {}
-    categorical_columns = ['gender', 'masterCategory', 'subCategory', 'articleType', 'baseColour', 'season']
-    for col in categorical_columns:
-        encoder_path = os.path.join(os.path.dirname(MODEL_PATH), f"{col}_encoder.pkl")
-        if os.path.exists(encoder_path):
-            app.state.encoders[col] = joblib.load(encoder_path)
-        else:
-            logger.warning(f"Encoder for {col} not found at {encoder_path}")
-except FileNotFoundError as e:
-    logger.error(f"Model artifacts not found: {str(e)}. Please ensure the model is trained.")
+    if not initialize_model():
+        logger.error("Model initialization failed. Ensure MongoDB has data.")
+except Exception as e:
+    logger.error(f"Model artifacts not found: {str(e)}", exc_info=True)
     raise HTTPException(status_code=500, detail="Model artifacts not found. Please train the model first.")
+
 
 @app.get("/")
 async def root():
@@ -245,8 +291,9 @@ async def get_metrics():
     except Exception as e:
         logger.error(f"Error fetching metrics: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error fetching metrics: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
-    import os
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)

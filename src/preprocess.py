@@ -6,7 +6,7 @@ import logging
 import os
 
 try:
-    from imblearn.over_sampling import SMOTE
+    from imblearn.over_sampling import SMOTE # type: ignore
     SMOTE_AVAILABLE = True
 except ImportError:
     SMOTE_AVAILABLE = False
