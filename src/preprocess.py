@@ -95,18 +95,18 @@ def preprocess_new_data(input_data, feature_columns, scaler, encoder_dir="models
 
         # Load and apply encoders
         logger.info("Encoding categorical variables")
-        encoders = {}
         for col in categorical_columns:
             encoder_path = os.path.join(encoder_dir, f"{col}_encoder.pkl")
             if not os.path.exists(encoder_path):
                 raise FileNotFoundError(f"Encoder for {col} not found at {encoder_path}")
+            
             encoder = joblib.load(encoder_path)
-            # Map unseen labels to 'Unknown' (must be in encoder.classes_)
-            input_data[col] = input_data[col].astype(str).map(
-                lambda x: x if x in encoder.classes_ else 'Unknown'
-            )
+            
+            # Handle unseen labels by mapping them to a known value (e.g., most frequent class)
+            unknown_handler = lambda x: x if x in encoder.classes_ else encoder.classes_[0]
+            input_data[col] = input_data[col].astype(str).apply(unknown_handler)
+            
             input_data[col] = encoder.transform(input_data[col])
-            encoders[col] = encoder
 
         # Select feature columns
         X = input_data[feature_columns]
