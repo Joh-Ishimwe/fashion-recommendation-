@@ -4,7 +4,7 @@
 The Fashion Recommendation System is an innovative application that leverages machine learning to provide personalized fashion recommendations based on user preferences and trends. This project consists of a frontend built with Next.js and a backend powered by a custom API hosted on Render. The system allows users to input their style preferences, receive tailored outfit suggestions.
 
 - **Frontend**: A Next.js application with Tailwind CSS for styling, shadcn/ui components, and next-themes for theme management. The frontend is deployed on Render.
-- **Backend**: A RESTful API deployed on Render.
+- **Backend**: A  FastAPI deployed on Render.
 - **DataBase**: MongoDB
 
 This project demonstrates end-to-end development, including UI/UX design, API integration, and deployment, making it a great example for learning full-stack development with modern tools.
