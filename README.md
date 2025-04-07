@@ -11,7 +11,7 @@ This project demonstrates end-to-end development, including UI/UX design, API in
 
 ## URLs
 - **Live Application**: **https://fashion-recommendation-frontend-1.onrender.com**
-- **Deployed API**: **https://fashion-recommendation-rls8.onrender.com/docs**
+- **Deployed API**: **https://fashion-recommendation-og63.onrender.com/**
 
 ## Video Demo
 Check out the video demo to see the Fashion Recommendation System in action:
